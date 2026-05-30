@@ -23,22 +23,20 @@ class _NavigationScreenState extends State<NavigationScreen> {
     });
   }
 
-  List<Widget> _pages(BuildContext context) {
-    return [
-      DashboardPage(),
-      SettingsPage(),
-      HistoryPage(),
-      NotificationsPage(),
-    ];
-  }
+  final List<Widget> _pages = const [
+    DashboardPage(),
+    SettingsPage(),
+    HistoryPage(),
+    NotificationsPage(),
+  ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _pages(context)[_pageIndex],
+      body: IndexedStack(index: _pageIndex, children: _pages),
       bottomNavigationBar: CurvedNavigationBar(
         key: _bottomNavigationKey,
-        index: 0,
+        index: _pageIndex,
         height: 70,
         // ignore: prefer_const_literals_to_create_immutables
         items: [

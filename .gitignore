@@ -33,6 +33,9 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Local fonts (do not commit)
+/assets/fonts/
+
 # Symbolication related
 app.*.symbols
 
