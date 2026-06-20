@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
 import 'package:simonle/screens/dashboard_screen.dart';
 import 'package:simonle/screens/history_screen.dart';
-import 'package:simonle/screens/notifications_screen.dart';
 import 'package:simonle/screens/settings_screen.dart';
 import 'package:flutter_tailwind_colors/flutter_tailwind_colors.dart';
 
@@ -15,19 +14,21 @@ class NavigationScreen extends StatefulWidget {
 
 class _NavigationScreenState extends State<NavigationScreen> {
   int _pageIndex = 0;
-  GlobalKey<CurvedNavigationBarState> _bottomNavigationKey = GlobalKey();
+  final GlobalKey<CurvedNavigationBarState> _bottomNavigationKey = GlobalKey();
 
-  void _navigateToPage(int pageIndex) {
-    setState(() {
-      _pageIndex = pageIndex;
-    });
+  Widget _buildNavIcon(IconData icon, int index) {
+    final bool isActive = _pageIndex == index;
+    return Icon(
+      icon,
+      size: 30,
+      color: isActive ? TWColors.white : TWColors.gray.shade400,
+    );
   }
 
   final List<Widget> _pages = const [
     DashboardPage(),
-    SettingsPage(),
     HistoryPage(),
-    NotificationsPage(),
+    SettingsPage(),
   ];
 
   @override
@@ -37,18 +38,16 @@ class _NavigationScreenState extends State<NavigationScreen> {
       bottomNavigationBar: CurvedNavigationBar(
         key: _bottomNavigationKey,
         index: _pageIndex,
-        height: 70,
-        // ignore: prefer_const_literals_to_create_immutables
+        height: 65,
         items: [
-          Icon(Icons.home, size: 35),
-          Icon(Icons.settings, size: 35),
-          Icon(Icons.history, size: 35),
-          Icon(Icons.notifications, size: 35),
+          _buildNavIcon(Icons.home_rounded, 0),
+          _buildNavIcon(Icons.history_rounded, 1),
+          _buildNavIcon(Icons.settings_rounded, 2),
         ],
-        buttonBackgroundColor: Colors.white,
+        buttonBackgroundColor: TWColors.blue.shade600,
         backgroundColor: TWColors.gray.shade100,
         animationCurve: Curves.easeInOut,
-        animationDuration: Duration(milliseconds: 500),
+        animationDuration: const Duration(milliseconds: 400),
         letIndexChange: (index) => true,
         onTap: (index) {
           setState(() {
