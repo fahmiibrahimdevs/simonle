@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tailwind_colors/flutter_tailwind_colors.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:simonle/services/mqtt_service.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -17,7 +19,6 @@ class DashboardPageState extends State<DashboardPage> {
   bool _isSimulation = false;
   bool _pumpInlet = false;
   bool _pumpOutlet = false;
-  bool _mqttConnected = false;
   final Map<String, _ThresholdSet> _thresholds = {};
 
   @override
@@ -234,17 +235,9 @@ class DashboardPageState extends State<DashboardPage> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: 0.6),
-      builder: (_) => _MqttConnectModal(
-        onConnect: () {
-          // TODO: implement real MQTT connection
-          setState(() => _mqttConnected = true);
-          Navigator.pop(context);
-        },
-        onDisconnect: () {
-          setState(() => _mqttConnected = false);
-          Navigator.pop(context);
-        },
-        isConnected: _mqttConnected,
+      builder: (_) => ChangeNotifierProvider.value(
+        value: context.read<MqttService>(),
+        child: const _MqttConnectModal(),
       ),
     );
   }
@@ -331,46 +324,68 @@ class DashboardPageState extends State<DashboardPage> {
                         ),
                       ),
                       // MQTT connect button
-                      GestureDetector(
-                        onTap: _showMqttModal,
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 7,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _mqttConnected
-                                ? TWColors.emerald.shade500
-                                : TWColors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: TWColors.white.withValues(alpha: 0.4),
-                              width: 1,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                _mqttConnected
-                                    ? Icons.wifi_rounded
-                                    : Icons.wifi_off_rounded,
-                                size: 14,
-                                color: TWColors.white,
+                      Consumer<MqttService>(
+                        builder: (_, mqtt, _) {
+                          final connected = mqtt.isConnected;
+                          final connecting = mqtt.isConnecting;
+                          return GestureDetector(
+                            onTap: connecting ? null : _showMqttModal,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 7,
                               ),
-                              const SizedBox(width: 5),
-                              Text(
-                                _mqttConnected ? 'Connected' : 'Connect',
-                                style: TextStyle(
-                                  color: TWColors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
+                              decoration: BoxDecoration(
+                                color: connected
+                                    ? TWColors.emerald.shade500
+                                    : connecting
+                                        ? TWColors.amber.shade500
+                                        : TWColors.white.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: TWColors.white.withValues(alpha: 0.4),
+                                  width: 1,
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (connecting)
+                                    const SizedBox(
+                                      width: 12,
+                                      height: 12,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  else
+                                    Icon(
+                                      connected
+                                          ? Icons.wifi_rounded
+                                          : Icons.wifi_off_rounded,
+                                      size: 14,
+                                      color: TWColors.white,
+                                    ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    connecting
+                                        ? 'Connecting...'
+                                        : connected
+                                            ? 'Connected'
+                                            : 'Connect',
+                                    style: TextStyle(
+                                      color: TWColors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
@@ -691,27 +706,38 @@ class DashboardPageState extends State<DashboardPage> {
 // ─── MQTT Connect Modal ──────────────────────────────────────────────────────
 
 class _MqttConnectModal extends StatefulWidget {
-  const _MqttConnectModal({
-    required this.onConnect,
-    required this.onDisconnect,
-    required this.isConnected,
-  });
-
-  final VoidCallback onConnect;
-  final VoidCallback onDisconnect;
-  final bool isConnected;
+  const _MqttConnectModal();
 
   @override
   State<_MqttConnectModal> createState() => _MqttConnectModalState();
 }
 
 class _MqttConnectModalState extends State<_MqttConnectModal> {
-  final _hostCtrl = TextEditingController(text: '103.197.188.199');
-  final _portCtrl = TextEditingController(text: '1883');
+  final _hostCtrl = TextEditingController();
+  final _portCtrl = TextEditingController();
   final _userCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   bool _obscurePass = true;
   bool _rememberCredentials = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCredentials();
+  }
+
+  Future<void> _loadCredentials() async {
+    final mqtt = context.read<MqttService>();
+    await mqtt.loadSavedCredentials();
+    if (!mounted) return;
+    setState(() {
+      _hostCtrl.text = mqtt.savedHost;
+      _portCtrl.text = mqtt.savedPort.toString();
+      _userCtrl.text = mqtt.savedUsername;
+      _passCtrl.text = mqtt.savedPassword;
+      _rememberCredentials = mqtt.savedRemember;
+    });
+  }
 
   @override
   void dispose() {
@@ -722,226 +748,346 @@ class _MqttConnectModalState extends State<_MqttConnectModal> {
     super.dispose();
   }
 
+  Future<void> _doConnect() async {
+    final mqtt = context.read<MqttService>();
+    final host = _hostCtrl.text.trim();
+    final port = int.tryParse(_portCtrl.text.trim()) ?? 1883;
+    final username = _userCtrl.text.trim();
+    final password = _passCtrl.text.trim();
+
+    await mqtt.connect(
+      host: host,
+      port: port,
+      username: username.isEmpty ? null : username,
+      password: password.isEmpty ? null : password,
+    );
+
+    if (!mounted) return;
+
+    if (mqtt.isConnected) {
+      await mqtt.saveCredentials(
+        host: host,
+        port: port,
+        username: username,
+        password: password,
+        remember: _rememberCredentials,
+      );
+      if (mounted) Navigator.pop(context);
+    }
+    // If error → stay open, error shown via Consumer
+  }
+
+  void _doDisconnect() {
+    context.read<MqttService>().disconnect();
+    Navigator.pop(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-      padding: EdgeInsets.only(bottom: bottomInset),
-      decoration: BoxDecoration(
-        color: TWColors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
-            blurRadius: 24,
-            offset: const Offset(0, -6),
-          ),
-        ],
-      ),
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Drag handle
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(
-                    color: TWColors.gray.shade200,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
+    return Consumer<MqttService>(
+      builder: (_, mqtt, _) {
+        final isConnected = mqtt.isConnected;
+        final isConnecting = mqtt.isConnecting;
+        final errorMsg = mqtt.errorMessage;
+
+        return Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          padding: EdgeInsets.only(bottom: bottomInset),
+          decoration: BoxDecoration(
+            color: TWColors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 24,
+                offset: const Offset(0, -6),
               ),
-              // Header
-              Row(
+            ],
+          ),
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: TWColors.blue.shade100,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(
-                      Icons.link_rounded,
-                      color: TWColors.blue.shade700,
-                      size: 22,
+                  // Drag handle
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 20),
+                      decoration: BoxDecoration(
+                        color: TWColors.gray.shade200,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 14),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  // Header
+                  Row(
                     children: [
-                      Text(
-                        'Connect Broker',
-                        style: TextStyle(
-                          color: TWColors.gray.shade900,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: isConnected
+                              ? TWColors.emerald.shade100
+                              : TWColors.blue.shade100,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(
+                          isConnected
+                              ? Icons.wifi_rounded
+                              : Icons.link_rounded,
+                          color: isConnected
+                              ? TWColors.emerald.shade700
+                              : TWColors.blue.shade700,
+                          size: 22,
                         ),
                       ),
+                      const SizedBox(width: 14),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isConnected ? 'Broker Connected' : 'Connect Broker',
+                            style: TextStyle(
+                              color: TWColors.gray.shade900,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            'Setup your MQTT connection',
+                            style: TextStyle(
+                              color: TWColors.gray.shade500,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Error banner
+                  if (mqtt.hasError && errorMsg != null) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: TWColors.red.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: TWColors.red.shade200),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.error_outline_rounded,
+                            size: 16,
+                            color: TWColors.red.shade600,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              errorMsg,
+                              style: TextStyle(
+                                color: TWColors.red.shade700,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  // Broker Host
+                  _MqttField(
+                    label: 'Broker Host',
+                    controller: _hostCtrl,
+                    icon: Icons.dns_rounded,
+                    hint: 'e.g. 192.168.1.1',
+                    enabled: !isConnected,
+                  ),
+                  const SizedBox(height: 12),
+                  // Port
+                  _MqttField(
+                    label: 'Port',
+                    controller: _portCtrl,
+                    icon: Icons.settings_ethernet_rounded,
+                    hint: '1883',
+                    keyboardType: TextInputType.number,
+                    enabled: !isConnected,
+                  ),
+                  const SizedBox(height: 20),
+                  // Auth section label
+                  Row(
+                    children: [
+                      Container(
+                        width: 3,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          color: TWColors.blue.shade400,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       Text(
-                        'Setup your MQTT connection',
+                        'Authentication (Optional)',
                         style: TextStyle(
-                          color: TWColors.gray.shade500,
-                          fontSize: 12,
+                          color: TWColors.gray.shade600,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
                   ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              // Broker Host
-              _MqttField(
-                label: 'Broker Host',
-                controller: _hostCtrl,
-                icon: Icons.dns_rounded,
-                hint: 'e.g. 192.168.1.1',
-              ),
-              const SizedBox(height: 12),
-              // Port
-              _MqttField(
-                label: 'Port',
-                controller: _portCtrl,
-                icon: Icons.settings_ethernet_rounded,
-                hint: '1883',
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 20),
-              // Auth section label
-              Row(
-                children: [
-                  Container(
-                    width: 3,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: TWColors.blue.shade400,
-                      borderRadius: BorderRadius.circular(2),
+                  const SizedBox(height: 12),
+                  // Username
+                  _MqttField(
+                    label: 'Username',
+                    controller: _userCtrl,
+                    icon: Icons.person_outline_rounded,
+                    hint: 'Optional',
+                    enabled: !isConnected,
+                  ),
+                  const SizedBox(height: 12),
+                  // Password
+                  _MqttField(
+                    label: 'Password',
+                    controller: _passCtrl,
+                    icon: Icons.lock_outline_rounded,
+                    hint: 'Optional',
+                    obscure: _obscurePass,
+                    enabled: !isConnected,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePass
+                            ? Icons.visibility_off_rounded
+                            : Icons.visibility_rounded,
+                        size: 18,
+                        color: TWColors.gray.shade400,
+                      ),
+                      onPressed: () {
+                        setState(() => _obscurePass = !_obscurePass);
+                      },
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Authentication (Optional)',
-                    style: TextStyle(
-                      color: TWColors.gray.shade600,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                  const SizedBox(height: 16),
+                  // Remember credentials
+                  if (!isConnected)
+                    GestureDetector(
+                      onTap: () {
+                        setState(
+                          () => _rememberCredentials = !_rememberCredentials,
+                        );
+                      },
+                      child: Row(
+                        children: [
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            width: 22,
+                            height: 22,
+                            decoration: BoxDecoration(
+                              color: _rememberCredentials
+                                  ? TWColors.blue.shade600
+                                  : TWColors.white,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: _rememberCredentials
+                                    ? TWColors.blue.shade600
+                                    : TWColors.gray.shade300,
+                              ),
+                            ),
+                            child: _rememberCredentials
+                                ? const Icon(
+                                    Icons.check_rounded,
+                                    size: 14,
+                                    color: Colors.white,
+                                  )
+                                : null,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            'Remember credentials',
+                            style: TextStyle(
+                              color: TWColors.gray.shade700,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              // Username
-              _MqttField(
-                label: 'Username',
-                controller: _userCtrl,
-                icon: Icons.person_outline_rounded,
-                hint: 'Optional',
-              ),
-              const SizedBox(height: 12),
-              // Password
-              _MqttField(
-                label: 'Password',
-                controller: _passCtrl,
-                icon: Icons.lock_outline_rounded,
-                hint: 'Optional',
-                obscure: _obscurePass,
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscurePass
-                        ? Icons.visibility_off_rounded
-                        : Icons.visibility_rounded,
-                    size: 18,
-                    color: TWColors.gray.shade400,
-                  ),
-                  onPressed: () {
-                    setState(() => _obscurePass = !_obscurePass);
-                  },
-                ),
-              ),
-              const SizedBox(height: 16),
-              // Remember credentials
-              GestureDetector(
-                onTap: () {
-                  setState(() => _rememberCredentials = !_rememberCredentials);
-                },
-                child: Row(
-                  children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      width: 22,
-                      height: 22,
-                      decoration: BoxDecoration(
-                        color: _rememberCredentials
-                            ? TWColors.blue.shade600
-                            : TWColors.white,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: _rememberCredentials
-                              ? TWColors.blue.shade600
-                              : TWColors.gray.shade300,
+                  const SizedBox(height: 24),
+                  // Connect / Disconnect button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: isConnecting
+                          ? null
+                          : isConnected
+                              ? _doDisconnect
+                              : _doConnect,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isConnected
+                            ? TWColors.red.shade500
+                            : TWColors.blue.shade600,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor:
+                            TWColors.blue.shade300,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
                         ),
+                        elevation: 0,
                       ),
-                      child: _rememberCredentials
-                          ? const Icon(
-                              Icons.check_rounded,
-                              size: 14,
-                              color: Colors.white,
+                      child: isConnecting
+                          ? const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                SizedBox(width: 10),
+                                Text(
+                                  'Menghubungkan...',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
                             )
-                          : null,
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      'Remember credentials',
-                      style: TextStyle(
-                        color: TWColors.gray.shade700,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              // Connect / Disconnect button
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: widget.isConnected
-                      ? widget.onDisconnect
-                      : widget.onConnect,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: widget.isConnected
-                        ? TWColors.red.shade500
-                        : TWColors.blue.shade600,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: Text(
-                    widget.isConnected ? 'DISCONNECT' : 'CONNECT',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.2,
+                          : Text(
+                              isConnected ? 'DISCONNECT' : 'CONNECT',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
                     ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -955,6 +1101,7 @@ class _MqttField extends StatelessWidget {
     this.obscure = false,
     this.keyboardType,
     this.suffixIcon,
+    this.enabled = true,
   });
 
   final String label;
@@ -964,6 +1111,7 @@ class _MqttField extends StatelessWidget {
   final bool obscure;
   final TextInputType? keyboardType;
   final Widget? suffixIcon;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -983,10 +1131,11 @@ class _MqttField extends StatelessWidget {
         ),
         TextField(
           controller: controller,
+          enabled: enabled,
           obscureText: obscure,
           keyboardType: keyboardType,
           style: TextStyle(
-            color: TWColors.gray.shade800,
+            color: enabled ? TWColors.gray.shade800 : TWColors.gray.shade400,
             fontSize: 14,
             fontWeight: FontWeight.w500,
           ),

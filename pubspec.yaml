@@ -37,6 +37,8 @@ dependencies:
   shared_preferences: ^2.3.2
   provider: ^6.1.5
   flutter_tailwind_colors: ^0.0.7
+  mqtt_client: ^10.5.2
+  uuid: ^4.5.1
 
 dev_dependencies:
   flutter_test:
